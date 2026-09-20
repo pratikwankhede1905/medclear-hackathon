@@ -6,6 +6,8 @@ $env:PYTHONIOENCODING = "utf-8"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 >$null
 
+# Remove any stale temporary session tokens that might conflict with ~/.aws/credentials
+Remove-Item env:AWS_SESSION_TOKEN -ErrorAction SilentlyContinue
+
 Write-Host "Deploying MedClear Serverless Stack to AWS..." -ForegroundColor Cyan
 sam deploy --guided
-
