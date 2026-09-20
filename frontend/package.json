@@ -1,0 +1,27 @@
+{
+  "name": "medclear-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aws-amplify/api": "^5.0.12",
+    "@aws-amplify/auth": "^5.0.12",
+    "aws-amplify": "^5.0.12",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.299.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24",
+    "tailwindcss": "^3.3.2",
+    "vite": "^8.3.0"
+  }
+}
