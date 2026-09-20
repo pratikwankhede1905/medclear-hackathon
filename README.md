@@ -185,13 +185,15 @@ Once deployment completes, note the outputs:
 
 ### Step 3: Connect Frontend to Backend
 
-Create a file named `.env.local` inside the `frontend/` directory:
+A `.env.local` file has been configured in `frontend/` with the deployed AWS resources:
 
 ```env
 VITE_AWS_REGION=us-east-1
-VITE_USER_POOL_ID=<your-user-pool-id>
-VITE_USER_POOL_CLIENT_ID=<your-user-pool-client-id>
-VITE_API_ENDPOINT=<your-api-endpoint>
+VITE_USER_POOL_ID=us-east-1_JS9YLC01C
+VITE_USER_POOL_CLIENT_ID=4r3kfn8juptkd0f5ipo85b3ptd
+VITE_API_ENDPOINT=https://228givtfq2.execute-api.us-east-1.amazonaws.com/prod
+VITE_IDENTITY_POOL_ID=us-east-1:8bfd8eb9-c384-465a-84e4-e9deef33d195
+VITE_UPLOAD_BUCKET=medclear-prod-uploads-471932413325
 ```
 
 Restart the frontend server:
