@@ -212,3 +212,4 @@ npm run dev
 ## ⚠️ Disclaimer
 
 *MedClear is an AI-powered assistant designed solely for informational and educational purposes. It does not provide medical diagnoses, treatment recommendations, or professional healthcare advice. Always consult a qualified healthcare provider regarding medical conditions or test interpretations.*
+
