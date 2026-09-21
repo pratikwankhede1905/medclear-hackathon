@@ -7,15 +7,18 @@ import urllib.parse
 from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 s3 = boto3.client('s3')
 ddb = boto3.resource('dynamodb')
 textract = boto3.client('textract')
 bedrock = boto3.client('bedrock-runtime')
 
-BUCKET_NAME = os.getenv('BUCKET_NAME')
-TABLE_NAME = os.getenv('DDB_TABLE')
+BUCKET_NAME = os.getenv('BUCKET_NAME', 'medclear-prod-uploads-471932413325')
+TABLE_NAME = os.getenv('DDB_TABLE', 'medclear-prod-summaries')
 BEDROCK_MODEL_ID = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-3-5-haiku-20241022-v1:0')
 
 table = ddb.Table(TABLE_NAME)
@@ -217,66 +220,98 @@ Medical Report:
 
 
 def _generate_clinical_intelligence_summary(text):
-    """Parses standard medical lab panels (CBC, Electrolytes, Liver, Renal)
-    and produces plain-English explanations, flags abnormal values against
-    ranges, and generates doctor questions.
+    """Parses standard medical lab panels (CBC, Electrolytes, Liver, Renal, Cardiology)
+    and produces plain-English explanations, flags abnormal values, and generates
+    practical doctor consultation questions.
     """
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     full_str = ' '.join(lines)
 
-    # Extract patient metadata if present
+    # Extract patient metadata if present (handling single-line and multi-line patterns)
     patient_name = ""
     age_sex = ""
-    for line in lines:
-        if 'name' in line.lower() and ':' in line:
-            patient_name = line.split(':', 1)[1].strip()
-        elif ('age' in line.lower() or 'sex' in line.lower()) and ':' in line:
-            age_sex = line.split(':', 1)[1].strip()
+    hospital_name = ""
+    doctor_name = ""
 
-    # Identify panels present
-    is_cbc = bool(re.search(r'\b(CBC|Complete Blood Count|Hemoglobin|Platelet|WBC)\b', full_str, re.IGNORECASE))
+    for i, line in enumerate(lines):
+        lower = line.lower()
+        if lower == 'name' and i + 1 < len(lines):
+            candidate = lines[i + 1]
+            if not any(k in candidate.lower() for k in ['sample', 'date', 'age', 'ref', 'test', 'hosp']):
+                patient_name = candidate
+        elif 'name:' in lower or 'patient:' in lower:
+            patient_name = line.split(':', 1)[1].strip()
+
+        if ('age/sex' in lower or 'age / sex' in lower):
+            if ':' in line and line.split(':', 1)[1].strip():
+                age_sex = line.split(':', 1)[1].strip()
+            elif i + 1 < len(lines):
+                age_sex = lines[i + 1]
+
+        if 'ref. by' in lower or 'dr.' in lower:
+            if ':' in line:
+                doctor_name = line.split(':', 1)[1].strip()
+            elif lower.startswith('dr.'):
+                doctor_name = line
+
+        if 'hospital' in lower or 'clinic' in lower or 'foundation' in lower:
+            if not hospital_name and len(line) < 40:
+                hospital_name = line
+
+    # Identify clinical panels present
+    is_cbc = bool(re.search(r'\b(CBC|Complete Blood Count|Hemoglobin|Platelet|WBC|Neutrophil)\b', full_str, re.IGNORECASE))
     is_electrolytes = bool(re.search(r'\b(Electrolyte|Sodium|Potassium|Chloride)\b', full_str, re.IGNORECASE))
     is_cardiology = bool(re.search(r'\b(Cardiology|Heart|Cardiac|Troponin|ECG)\b', full_str, re.IGNORECASE))
+    is_lipid = bool(re.search(r'\b(Lipid|Cholesterol|Triglyceride|HDL|LDL)\b', full_str, re.IGNORECASE))
+    is_metabolic = bool(re.search(r'\b(Glucose|HbA1c|Creatinine|BUN|Urea)\b', full_str, re.IGNORECASE))
 
-    # Determine abnormal values by parsing lines with values and ranges
+    # Parse potential abnormal values
     flags = []
-    
-    # Common test patterns: Name ... Result ... Normal Range
     for line in lines:
-        # Check for explicitly marked abnormal indicators
         if re.search(r'\b(HIGH|LOW|ABNORMAL|\*|CRITICAL)\b', line, re.IGNORECASE):
             flags.append(f"Flagged result: {line}")
 
-    # Build 3-sentence plain language summary
-    name_str = f" for {patient_name}" if patient_name else ""
+    # Build plain-English 3-sentence summary
     tests_detected = []
     if is_cbc:
         tests_detected.append("Complete Blood Count (CBC)")
     if is_electrolytes:
-        tests_detected.append("Serum Electrolyte panel")
-    if is_cardiology:
-        tests_detected.append("Cardiac health evaluation")
-    
-    tests_str = " and ".join(tests_detected) if tests_detected else "routine laboratory tests"
+        tests_detected.append("Serum Electrolytes (Sodium, Potassium, Chloride)")
+    if is_lipid:
+        tests_detected.append("Lipid profile")
+    if is_metabolic:
+        tests_detected.append("Metabolic & Kidney panel")
+    if is_cardiology and not tests_detected:
+        tests_detected.append("Cardiovascular health evaluation")
 
-    s1 = f"This report provides results{name_str} covering {tests_str} to check your overall health and organ function."
+    tests_str = " and ".join(tests_detected) if tests_detected else "routine diagnostic blood tests"
+
+    patient_context = ""
+    if patient_name and age_sex:
+        patient_context = f" for {patient_name} ({age_sex})"
+    elif patient_name:
+        patient_context = f" for {patient_name}"
+
+    s1 = f"This report provides routine {tests_str} laboratory results{patient_context} to assess overall wellness, cellular health, and organ function."
+
     if flags:
-        s2 = f"There are {len(flags)} specific result(s) that appear outside the standard reference ranges and warrant a discussion with your healthcare provider."
-        s3 = "Reviewing these numbers with your doctor will help clarify whether any treatment adjustments or lifestyle changes are recommended."
+        s2 = f"There are {len(flags)} specific result(s) that appear outside typical reference limits and should be discussed with your physician."
+        s3 = "Reviewing these numbers with your healthcare provider will help determine if any treatment adjustments, hydration changes, or follow-ups are needed."
     else:
-        s2 = "All standard markers tested—including your blood counts and mineral electrolytes—fall comfortably within normal healthy ranges."
-        s3 = "Overall, these findings reflect stable results with no urgent concerns detected on this laboratory panel."
+        s2 = "All primary biological markers, including your blood counts, platelets, and essential mineral electrolytes, fall comfortably within standard healthy reference ranges."
+        s3 = "Overall, these findings reflect stable, reassuring baseline health with no urgent abnormalities or concerning findings detected."
 
     summary = f"{s1} {s2} {s3}"
 
-    # Build Doctor Questions
+    # Build practical Doctor Consultation Questions
     questions = [
-        "Do these results look consistent with my personal health history and current medications?",
-        "Are there any dietary or daily hydration tips you recommend to keep these levels healthy?",
-        "When would you like me to repeat this routine panel for ongoing preventive monitoring?"
+        "Do these results look consistent with my personal health history and current daily medications?",
+        "Are there any specific dietary or hydration recommendations to help keep these electrolyte and blood levels optimal?",
+        "When would you recommend my next routine blood panel for ongoing preventive monitoring?"
     ]
 
     return summary, flags, questions
+
 
 
 def _parse_bedrock_output(output):

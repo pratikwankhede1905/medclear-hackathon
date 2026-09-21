@@ -7,4 +7,8 @@ s3_prefix = "medclear-prod"
 region = "us-east-1"
 capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
 confirm_changeset = true
+parameter_overrides = "AppName=\"medclear\" Stage=\"prod\""
+image_repositories = []
 
+[default.global.parameters]
+region = "us-east-1"
